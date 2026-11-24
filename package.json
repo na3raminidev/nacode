@@ -1,0 +1,46 @@
+{
+  "name": "graphicode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portable, offline code and diff explorer",
+  "bin": {
+    "graphicode": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:browser": "node --import tsx test/browser.ts",
+    "demo": "node --import tsx scripts/demo.ts",
+    "benchmark": "node --import tsx scripts/benchmark.ts"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/language-data": "^6.5.1",
+    "@codemirror/merge": "^6.10.2",
+    "@codemirror/search": "^6.5.10",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.5",
+    "@fontsource-variable/geist": "^5.2.6",
+    "@fontsource-variable/geist-mono": "^5.2.6",
+    "@lezer/highlight": "^1.2.5",
+    "commander": "^14.0.0",
+    "ignore": "^7.0.5",
+    "minimatch": "^10.0.1",
+    "tree-sitter-wasms": "0.1.13",
+    "typescript": "5.8.3",
+    "web-tree-sitter": "0.24.7",
+    "yaml": "2.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "esbuild": "^0.25.0",
+    "playwright": "^1.51.0",
+    "tsx": "^4.19.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,64 @@
+<div id="app">
+  <header class="topbar">
+    <button id="menu" class="icon-button" aria-label="Toggle file navigation">&#9776;</button>
+    <a class="brand" href="#" aria-label="graphiCode home"><span class="brand-mark" aria-hidden="true">g<span>.</span></span><span>graphi<span class="brand-light">Code</span></span></a>
+    <span class="top-divider"></span><span id="project-name" class="project-name"></span><span id="mode-badge" class="badge"></span>
+    <nav class="top-nav" aria-label="Explore"><button id="top-map" class="active">City</button><button id="top-files">Files</button><button id="top-search">Search</button></nav><div class="top-actions"><button id="quick-open" class="quick-open"><span>Find a file...</span><kbd>Ctrl K</kbd></button><button id="theme" class="icon-button" aria-label="Toggle light and dark theme" title="Toggle theme">&#9680;</button><button id="about" class="icon-button" aria-label="Export information" title="Export information">i</button></div>
+  </header>
+  <div class="workspace">
+    <aside id="sidebar" class="sidebar" aria-label="Project navigation">
+      <div class="side-heading"><span>WORKSPACE</span><span class="offline-dot" title="Fully offline">LOCAL</span></div>
+      <nav class="nav-switch" aria-label="Workspace views"><button id="nav-files" class="active">Files</button><button id="nav-search">Search</button><button id="nav-map">Map</button></nav>
+      <section id="files-panel" class="side-panel">
+        <div class="filter-wrap"><span aria-hidden="true">&#8981;</span><input id="file-filter" aria-label="Filter files" placeholder="Filter files..." autocomplete="off"><kbd>/</kbd></div>
+        <div class="tree-heading"><span id="tree-root"></span><span id="file-count"></span></div>
+        <div id="tree" class="tree" role="tree" aria-label="Files" tabindex="0"><div id="tree-spacer"></div><div id="tree-rows"></div></div>
+        <div class="side-footer"><span class="dot"></span><span>Everything stays on this device</span></div>
+      </section>
+      <section id="search-panel" class="side-panel" hidden>
+        <form id="search-form"><label for="search-input" class="field-label">SEARCH SOURCE</label><div class="search-input-row"><input id="search-input" placeholder="Text across files..." autocomplete="off"><button type="submit" aria-label="Search source">&#8594;</button></div><div class="search-options"><label><input id="match-case" type="checkbox"> Match case</label><button id="cancel-search" type="button">Cancel</button></div></form>
+        <p id="search-status" class="search-status" role="status">Searches current files, or before versions for deletions.</p><div id="search-results" class="search-results"></div>
+      </section>
+      <section id="map-panel" class="side-panel" hidden><div class="map-explainer"><span class="eyebrow">PLACES IN VIEW</span><h2>Your code,<br>a place to explore.</h2><p>Folders are neighborhoods. Files are buildings. Zoom in to reveal details.</p><p class="muted">Streets are visual spacing, not dependencies. Blocks group large folders. Building area is approximate.</p></div><div id="city-neighborhoods" class="city-neighborhoods" aria-label="Places in this neighborhood"></div></section>    </aside>
+    <main id="main">
+      <section id="reader" class="reader" aria-label="Source inspector" hidden><div class="inspector-heading"><span>SOURCE INSPECTOR</span><button id="reader-expand">Expand reader</button><button id="reader-close" aria-label="Close inspector">&#215;</button></div><div id="tabs" class="tabs" role="tablist" aria-label="Open files"></div>
+      <section id="code-panel" class="code-panel" hidden>
+        <div class="file-toolbar"><div id="breadcrumbs" class="breadcrumbs"></div><div class="file-actions"><button id="find-in-file" title="Find in file (Ctrl F)">Find</button><button id="jump-line" title="Jump to line (Ctrl G)">Go to line</button></div></div>
+        <div id="diff-toolbar" class="diff-toolbar" hidden><div class="segmented"><button id="unified" class="active">Unified</button><button id="split">Split</button></div><span id="change-summary"></span><div class="diff-controls"><label><input id="context-toggle" type="checkbox"> Full context</label><button id="prev-change" aria-label="Previous change" title="Previous change">&#8593;</button><button id="next-change" aria-label="Next change" title="Next change">&#8595;</button></div></div>
+        <div id="file-notice" class="file-notice" hidden></div><div id="large-controls" class="large-controls" hidden><select id="large-side" aria-label="File version"><option value="after">After</option><option value="before">Before</option></select><button id="prev-page">Previous page</button><span id="page-label"></span><button id="next-page">Next page</button></div>
+        <div id="pane-labels" class="pane-labels" hidden><span>BEFORE</span><span>AFTER</span></div><div id="editor" class="editor"></div>
+      </section>
+      </section>
+      <section id="map-view" class="map-view" aria-label="Interactive code city">
+        <canvas id="city-canvas" tabindex="0" aria-label="Code city. Drag to pan, scroll or pinch to zoom. Arrow keys move, plus and minus zoom, Home fits the city, Enter explores the center. Use Places or Files for accessible navigation."></canvas>
+        <div class="city-heading"><span id="city-scope" class="eyebrow"></span><h1>Your code, mapped<span>.</span></h1><span id="city-total"></span></div>
+        <div id="city-breadcrumbs" class="city-breadcrumbs" aria-label="City path"></div>
+        <div id="city-loading" class="city-loading" role="status">Laying out your city...</div><div id="city-empty" class="city-loading" hidden>No included files. Check your export filters.</div>
+        <div class="city-legend"><span><i></i> Folders / districts</span><span><i class="building-key"></i> Files / buildings</span><label><input id="city-changes" type="checkbox"> Changes</label></div>
+        <div class="city-location"><span id="city-depth"></span><strong id="city-frame-name"></strong><span>Scroll to explore &middot; drag to move</span></div>
+        <div class="city-tools"><button id="city-parent" title="Parent neighborhood" aria-label="Parent neighborhood">&#8593;</button><button id="city-zoom-in" title="Zoom in" aria-label="Zoom in">+</button><button id="city-zoom-out" title="Zoom out" aria-label="Zoom out">&#8722;</button><button id="city-fit" title="Fit city (Home)" aria-label="Fit city">&#8962;</button></div>
+        <div class="city-overview"><canvas id="city-minimap" width="180" height="120" aria-label="Local overview. Click to recenter; keyboard users can pan the main map."></canvas><span id="city-minimap-label">CITY OVERVIEW</span></div>
+                <button id="journeys-open" class="journeys-open" aria-expanded="false" aria-controls="journey-panel">Explore connections &#8599;</button>
+        <aside id="journey-panel" class="journey-panel" aria-label="Code journeys" hidden>
+          <header><div><span class="eyebrow">STATIC CONNECTIONS</span><h2>Follow the code.</h2></div><button id="journey-close" aria-label="Close journeys">&#215;</button></header>
+          <div class="journey-controls"><button id="journey-from">Choose start</button><button id="journey-to">Choose destination (optional)</button></div>
+          <label id="journey-search-label" for="journey-search" class="eyebrow">FIND A SYMBOL</label><input id="journey-search" placeholder="Search functions, classes, endpoints..." autocomplete="off"><div id="journey-search-results" class="journey-search-results"></div>
+          <nav class="journey-modes" aria-label="Relationship direction"><button id="journey-in">Incoming</button><button id="journey-out">Outgoing</button><button id="journey-journey">Journey</button><button id="journey-path">Routes to</button><button id="journey-overview">Overview</button></nav>
+          <div class="journey-options"><select id="journey-version" aria-label="Relationship version"><option value="after">After</option><option value="before">Before</option><option value="compare">Compare</option></select><label><input id="journey-probable" type="checkbox"> Include probable</label><label><input id="journey-context" type="checkbox"> Full city</label></div>
+          <p class="muted">Solid: resolved &middot; dashed: uncertain<br>Compare: green added / red removed. Static paths, not runtime traces.</p>
+          <p id="journey-status" role="status">Loading connections...</p><div class="journey-actions"><button id="journey-coverage">Analysis coverage</button><button id="journey-cancel">Cancel</button><button id="journey-clear">Clear</button></div>
+          <div id="journey-evidence" class="journey-evidence" hidden></div><div id="journey-results"></div>
+        </aside><div id="route-map-status" class="route-map-status" role="status"></div>
+        <div id="city-tooltip" class="city-tooltip" hidden><strong id="city-tooltip-name"></strong><span id="city-tooltip-meta"></span></div>
+      </section>    </main>
+  </div>
+  <footer class="statusbar"><span><span class="dot"></span> OFFLINE SNAPSHOT</span><span id="status-left"></span><span id="status-right">READ ONLY</span></footer>
+</div>
+<dialog id="palette" class="palette"><form method="dialog"><div class="palette-input-row"><span aria-hidden="true">&#8981;</span><input id="palette-input" placeholder="Jump to a file..." aria-label="Find a file"><button aria-label="Close file finder">Esc</button></div></form><div id="palette-results" class="palette-results"></div><div class="palette-footer">&#8593; &#8595; navigate <span>&#8629; open</span><span>Paths are searched, not uploaded.</span></div></dialog>
+<dialog id="info-dialog" class="info-dialog"><form method="dialog"><button class="dialog-close" aria-label="Close information">Close</button></form><span class="eyebrow">PORTABLE BY DESIGN</span><h2>About this export</h2><div id="info-content"></div><details><summary>Third-party notices</summary><pre id="notices"></pre></details></dialog>
+<dialog id="line-dialog" class="line-dialog"><form id="line-form"><label for="line-input">Go to line</label><input id="line-input" type="number" min="1" required><button class="primary" type="submit">Go</button><button id="line-cancel" type="button">Cancel</button></form></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+<noscript><div class="fatal">JavaScript is required to explore this offline export.</div></noscript>
+
+
+
