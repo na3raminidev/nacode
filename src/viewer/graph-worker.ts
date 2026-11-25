@@ -1,3 +1,7 @@
+import { InsightIndex } from '../insights/query.js';
+import type { InsightData } from '../insights/model.js';
+import type { FileEntry } from '../model.js';
+let insightData: InsightData | undefined, insightIndex: InsightIndex | undefined, files: FileEntry[] = [];
 import { EdgeTable, GraphIndex } from '../relations/query.js';
 import type { GraphQuery, GraphSymbol, Coverage, Relation } from '../relations/model.js';
 let table: EdgeTable, symbols: GraphSymbol[] = [], coverage: Coverage[] = [], index: GraphIndex | undefined;
@@ -8,11 +12,12 @@ self.onmessage = async event => {
   const message = event.data;
   try {
     if (message.type === 'init') {
-      changedFiles = new Set(message.changedFiles ?? []); table = new EdgeTable(message.edges); blocks = message.blocks; self.postMessage({ type: 'need', block: blocks[cursor] });
+      files = message.files ?? []; changedFiles = new Set(message.changedFiles ?? []); table = new EdgeTable(message.edges); blocks = message.blocks; self.postMessage({ type: 'need', block: blocks[cursor] });
     } else if (message.type === 'block') {
       if (message.block !== blocks[cursor] || !message.data) throw new Error('Missing or out-of-order graph block');
       const bytes = Uint8Array.from(atob(message.data), c => c.charCodeAt(0));
       const text = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text(); const value = JSON.parse(text);
+      if (value.insights) insightData = value.insights; if (value.facts && insightData) insightData.facts.push(...value.facts);
       if (value.symbols) symbols.push(...value.symbols); if (value.coverage) coverage = value.coverage;
       for (const e of value.edges ?? []) table.set(edgeCursor++, { from: e[0], to: e[1], kind: e[2], confidence: e[3], versions: e[4], file: e[5], line: e[6], beforeLine: e[7] ?? undefined, reason: e[8], condition: e[9] ?? undefined });
       self.postMessage({ type: 'progress', loaded: ++cursor, total: blocks.length });
@@ -21,8 +26,15 @@ self.onmessage = async event => {
         if (edgeCursor !== table.length) throw new Error('Incomplete graph edge table'); index = new GraphIndex({ symbols, edges: table });
         const counts: Record<string, number> = {}; for (const c of coverage) counts[c.status] = (counts[c.status] ?? 0) + 1;
         const context = new Set(changedFiles); for (let i = 0; i < table.length; i++) { const a = symbols[table.from[i]].file, b = symbols[table.to[i]].file; if (changedFiles.has(a) || changedFiles.has(b)) { if (a >= 0) context.add(a); if (b >= 0) context.add(b); } }
+        if (insightData) { insightIndex = new InsightIndex(insightData, files, symbols, table); self.postMessage({ type: 'insights-ready', features: insightData.features, facts: insightData.facts.length }); }
         self.postMessage({ type: 'ready', symbols: symbols.length, edges: table.length, coverage: counts, context: [...context] });
       }
+    } else if (message.type === 'insight-query') {
+      if (!insightIndex) { self.postMessage({ type: 'insight-error', id: message.id, message: 'Insights were not embedded or are still loading.' }); return; }
+      const token = ++generation;
+      try { const result = await insightIndex.query(message.query, () => token !== generation); if (token === generation) self.postMessage({ type: 'insight-result', id: message.id, result }); }
+      catch { self.postMessage({ type: 'insight-error', id: message.id, message: 'Evidence query failed; source browsing remains available.' }); }
+    } else if (message.type === 'symbol') { const symbol = symbols[message.id]; if (symbol) self.postMessage({ type: 'symbol', symbol, side: message.side });
     } else if (message.type === 'cancel') generation++;
     else if (message.type === 'search') {
       if (!index) throw new Error('Graph is still loading'); const query = String(message.query).toLowerCase(); const mask = message.side === 'before' ? 1 : 2;
@@ -51,5 +63,3 @@ self.onmessage = async event => {
     }
   } catch (error) { errors(message.id, error); }
 };
-
-

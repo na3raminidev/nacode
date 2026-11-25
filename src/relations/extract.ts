@@ -35,6 +35,9 @@ export function extractTS(file: string, text: string): ParsedFile {
       if (attr || ts.isCallExpression(n.parent)) { d.eventParent = scope.local; d.eventKind = attr ? 'event' : 'async'; }
       ts.forEachChild(n, c => visit(c, d, owner, condition)); return;
     }
+    if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) {
+      const target = n.tagName; if (ts.isIdentifier(target) && /^[A-Z]/.test(target.text)) scope.calls.push({ name: target.text, receiver: '', argc: 1, start: target.getStart(source), line: line(n), kind: 'event', condition: 'JSX render use' });
+    }
     if (ts.isJsxAttribute(n) && /^on[A-Z]/.test(n.name.getText(source)) && n.initializer && ts.isJsxExpression(n.initializer) && n.initializer.expression && ts.isIdentifier(n.initializer.expression)) {
       const target = n.initializer.expression;
       scope.calls.push({ name: target.text, receiver: '', argc: 0, start: target.getStart(source), line: line(n), kind: 'event', condition: n.name.getText(source) });
@@ -113,6 +116,7 @@ export async function extractJVM(file: string, text: string): Promise<ParsedFile
       }
       if (/property_declaration|local_variable_declaration/.test(n.type)) Object.assign(scope.types, typesIn(n.text));
       if (/^(if_expression|if_statement|when_expression|catch_block|catch_clause)$/.test(n.type)) condition = branch(n.text.split(/[\n{]/)[0]);
+      if (/^(when_entry|switch_label)$/.test(n.type)) condition = branch(n.text.split('->')[0].split('{')[0]);
       if (/^(call_expression|method_invocation)$/.test(n.type)) {
         let name = n.childForFieldName('name')?.text ?? '', receiver = n.childForFieldName('object')?.text ?? '';
         if (!name) {
@@ -133,4 +137,3 @@ export async function extractFile(file: string, text: string): Promise<ParsedFil
   if (/\.(kt|kts|java)$/.test(file)) return extractJVM(file, text);
   return { language: file.split('.').at(-1) ?? 'unknown', declarations: [], packageName: '', imports: [], notes: ['No relationship analyzer for this language.'] };
 }
-

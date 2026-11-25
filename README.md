@@ -156,3 +156,53 @@ Queries are bounded to 3 routes, depth 24, 50,000 states, 200,000 examined edges
 `node --import tsx scripts/relations-benchmark.ts` measured the synthetic Node fixture plus CSR index at 72 ms / 155 MiB RSS for 200k symbols and 1M edges. `--stress` measured 358 ms / 461 MiB RSS for 1M symbols and 5M edges. These are indexing measurements on this machine, **not** browser startup, rendering, real-world analysis, or worst-case query guarantees. The deliberately shallow synthetic path queries do not represent arbitrary production journeys.
 
 Generate the cross-repository example with `node --import tsx scripts/journey-demo.ts`: `output/journeys.html` and `output/journeys-diff.html`. Validate its offline source jumps and independent before/after routes with `node --import tsx test/journey-browser.ts`.
+
+## Ten evidence lenses
+
+Open **Explore insights** to explore capability journeys, state/errors, API/DTO contracts,
+change impact, branch evidence, recovery/transactions, gates/schema, Git hotspots,
+scenarios/tests and UI consumers. Cards open source evidence; symbol cards can continue
+into Journeys. Selecting a file and enabling **Only selected file** finds its matching
+state/scenario evidence and API/UI consumers. Solid edges are resolved static dependencies;
+dashed links are probable dependencies or evidence associations, never runtime traces.
+
+Explicit capabilities are optional workspace rules (paths may be repository-prefixed):
+
+```json
+{"features":[{"id":"orders","label":"Orders and payments","include":["web/src/orders/**","android/features/orders/**","api/orders/**"]}]}
+```
+
+Without rules, names/folders suggest capabilities labeled **inferred**. This focuses the
+existing folder city rather than rearranging buildings, so comparing versions keeps the
+same geography. Multiple capabilities may include a file.
+
+```sh
+node dist/cli.js snapshot ./project --history --history-refs main,release --history-limit 500 --out output/insights.html
+node dist/cli.js workspace workspace.json --history --out output/workspace.html
+node --import tsx scripts/insights-demo.ts
+node --import tsx test/insights-browser.ts
+node --import tsx scripts/insights-benchmark.ts
+```
+
+History is **off by default**, requires relationships and uses only explicit local refs:
+no fetch, checkout, deployment query or analyzed project execution. The base/head ref plus
+up to seven additional refs are pinned; 1-2000 non-merge commits per ref are scanned.
+Only commits touching included files are embedded. Commit subjects and ref names can
+contain private information: review the HTML before sharing. Limited metadata redaction
+is not a secret scanner; the HTML still intentionally contains included source text.
+Patch similarity is a normalized-diff candidate (max 100 small commits), not proof of
+feature equivalence; absence, squashes and deployments remain unknown.
+
+HTTP bindings optionally accept `stripPrefix` and `pathPrefix` (e.g. `/gateway` and `/v2`)
+for explicit gateway rewrites. Spring Exchange annotations, literal fetch/Axios calls,
+root tsconfig `baseUrl`/`paths`, JSX uses and unique interface implementation candidates
+are supported subsets. No tsconfig plugins or inherited configs execute. Ambiguous DI,
+dynamic routes and runtime state are not claimed resolved.
+
+Limits: 2 MiB analyzed text per file, 1,500 insight facts per file/side, 500,000 total;
+100 result cards per page, 200 map connections, 1.5-second query budget. Impact traversals
+are separate per version and capped at 6 hops, 5,000 files and 200,000 edges. Queries run
+in the embedded graph worker; partial results are marked. Unsupported languages remain
+readable but do not gain invented semantic evidence. A test file is not a passing test;
+config checks are not effective production values; shared writes are review points, not
+proven races. Large history extraction is bounded per Git call, not constant-time.

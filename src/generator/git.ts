@@ -13,9 +13,9 @@ function safeConfig(root: string): string[] {
   safeConfigByRoot.set(root, settings);
   return settings;
 }
-export function git(root: string, args: string[]): Buffer {
+export function git(root: string, args: string[], limits: { maxBuffer?: number; timeout?: number } = {}): Buffer {
   return execFileSync('git', ['--no-pager', '-c', 'core.quotePath=false', ...safeConfig(root), ...args], {
-    cwd: root, maxBuffer: 512 * 1024 * 1024, windowsHide: true,
+    cwd: root, maxBuffer: limits.maxBuffer ?? 512 * 1024 * 1024, timeout: limits.timeout, windowsHide: true,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
@@ -56,4 +56,3 @@ export class GitObjects {
   }
   close() { this.process.stdin.end(); }
 }
-

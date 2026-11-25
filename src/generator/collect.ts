@@ -1,3 +1,4 @@
+import type { HistoryOptions } from '../insights/model.js';
 import type { AnalysisConfig, RepositoryInfo } from '../relations/model.js';
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -7,7 +8,7 @@ import { git, resolveRef } from './git.js';
 import type { ContentKind, Status } from '../model.js';
 
 export interface Options {
-  relationships?: 'auto' | 'off'; include: string[]; exclude: string[]; includeSensitive?: boolean; includeGenerated?: boolean;
+  history?: boolean; historyLimit?: string; historyRefs?: string; relationships?: 'auto' | 'off'; include: string[]; exclude: string[]; includeSensitive?: boolean; includeGenerated?: boolean;
   ignore: boolean; includeUntracked?: boolean; out: string;
   base?: string; head?: string; workingTree?: boolean;
 }
@@ -16,7 +17,7 @@ export interface Candidate {
   path: string; localPath?: string; repo?: string; oldPath?: string; status: Status; before?: Source; after?: Source;
   additions: number; deletions: number;
 }
-export interface Collection { relationships?: 'auto' | 'off'; context?: boolean; analysis?: AnalysisConfig; repositories?: RepositoryInfo[]; name?: string; root: string; files: Candidate[]; exclusions: Record<string, number>; comparison?: string }
+export interface Collection { history?: HistoryOptions; historyBase?: Record<string, string>; relationships?: 'auto' | 'off'; context?: boolean; analysis?: AnalysisConfig; repositories?: RepositoryInfo[]; name?: string; root: string; files: Candidate[]; exclusions: Record<string, number>; comparison?: string }
 const generated = new Set(['node_modules', 'vendor', 'dist', 'build', 'target', '.gradle', '.next', '.cache', '__pycache__', '.venv', 'venv', 'coverage']);
 const sensitive = /(^|\/)(\.env(?:\..*)?|id_rsa(?:\..*)?|id_ed25519(?:\..*)?|credentials(?:\..*)?|secrets?(?:\..*)?|keystore\.properties|local\.properties)$|\.(pem|key|p12|pfx|jks|keystore)$/i;
 export function filterReason(name: string, opts: Options): string | undefined {
@@ -154,6 +155,3 @@ export async function comparison(folder: string, opts: Options): Promise<Collect
   }  files.sort((a, b) => a.path.localeCompare(b.path));
   return { root, files, exclusions, relationships: opts.relationships, context: opts.relationships === 'auto', comparison: head ? `${opts.base} (${base.slice(0, 7)}) -> ${opts.head} (${head.slice(0, 7)})` : `HEAD (${base.slice(0, 7)}) -> working tree` };
 }
-
-
-

@@ -1,3 +1,5 @@
+import { collectInsights } from '../insights/extract.js';
+import { collectHistory } from './history.js';
 import { analyze } from '../relations/analyze.js';
 import type { AnalysisFile } from '../relations/model.js';
 import { createHash } from 'node:crypto';
@@ -48,7 +50,7 @@ export async function exportHTML(collection: Collection, out: string, mode: Mani
       if (decoded.text === undefined) { if (context && collection.relationships !== 'off') analysisFiles.push({ ...context, text: '', skipReason: decoded.note ?? decoded.kind }); return { kind: decoded.kind, bytes: bytes.length, note: decoded.note }; }
       const text = decoded.text;
       if (context && collection.relationships !== 'off') {
-        const code = /\.(?:[cm]?[jt]sx?|kt|kts|java)$/.test(context.path);
+        const code = /\.(?:[cm]?[jt]sx?|kt|kts|java|md|ya?ml|sql|xml|json)$/.test(context.path);
         const contract = collection.analysis?.contracts?.some(c => c.repo === context.repo && c.path === context.path);
         const oversized = Buffer.byteLength(text) > 2 * 1024 * 1024;
         analysisFiles.push({ ...context, text: (code || contract) && !oversized ? text : '', skipReason: oversized ? 'Source exceeds the 2 MiB analysis limit.' : undefined });
@@ -71,11 +73,15 @@ export async function exportHTML(collection: Collection, out: string, mode: Mani
     }
     if (collection.relationships !== 'off') {
       const graph = await analyze(analysisFiles, collection.analysis ?? { repositories: collection.repositories ?? [{ id: 'root' }] }, assets, path.join(path.dirname(destination), '.cache', 'graphicode'));
+      const insights = collectInsights(analysisFiles, graph, collection.analysis);
+      insights.history = collectHistory(collection);
       const graphBlocks: string[] = [];
       const writeGraph = async (value: unknown) => { const id = `g${graphBlocks.length}`; graphBlocks.push(id); await blocks.write(`<script type="application/octet-stream" id="${id}">${gzipSync(JSON.stringify(value)).toString('base64')}</script>\n`); };
       await writeGraph({ version: 1, coverage: graph.coverage });
       for (let i = 0; i < graph.symbols.length; i += 25000) await writeGraph({ symbols: graph.symbols.slice(i, i + 25000) });
       for (let i = 0; i < graph.edges.length; i += 25000) await writeGraph({ edges: graph.edges.slice(i, i + 25000).map(e => [e.from, e.to, e.kind, e.confidence, e.versions, e.file, e.line, e.beforeLine ?? null, e.reason, e.condition ?? null]) });
+      await writeGraph({ insights: { ...insights, facts: [] } });
+      for (let i = 0; i < insights.facts.length; i += 10000) await writeGraph({ facts: insights.facts.slice(i, i + 10000) });
       manifest.relationships = { blocks: graphBlocks, symbols: graph.symbols.length, edges: graph.edges.length };
       analysisFiles.length = 0;
     }    await blocks.close();
@@ -100,7 +106,3 @@ export async function exportHTML(collection: Collection, out: string, mode: Mani
     if (partial) await unlink(partial).catch(() => {});
   }
 }
-
-
-
-

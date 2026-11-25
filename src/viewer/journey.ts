@@ -1,3 +1,4 @@
+import { Insights } from './insights.js';
 import type { Manifest } from '../model.js';
 import type { City } from './city/city.js';
 import type { GraphSymbol, Relation, GraphResult, GraphQuery, Side, Coverage } from '../relations/model.js';
@@ -5,7 +6,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const text = (tag: string, value: string, cls = '') => { const e = document.createElement(tag); e.textContent = value; e.className = cls; return e; };
 interface DisplayEdge extends Relation { id: number; count?: number }
 export class Journey {
-  private worker?: Worker;
+  private worker?: Worker; private insights: Insights;
   private id = 0; private searchId = 0; private ready = false;
   private from?: GraphSymbol; private to?: GraphSymbol; private file?: number;
   private searchTarget: 'from' | 'to' = 'from'; private timer?: ReturnType<typeof setTimeout>;
@@ -13,7 +14,8 @@ export class Journey {
   private mode: GraphQuery['mode'] = 'journey'; private context: number[] = [];
   private lastResult?: GraphResult; private partialComparison?: { edges: DisplayEdge[]; result: GraphResult; symbols: GraphSymbol[] };
   constructor(private manifest: Manifest, private city: City | undefined, private open: (file: number, line: number, side: Side) => void) {
-    $('journeys-open').onclick = () => this.toggle(); $('journey-close').onclick = () => this.toggle(false);
+    this.insights = new Insights(manifest, city, open, value => this.worker?.postMessage(value));
+    $('journeys-open').onclick = () => { this.toggle(); if (!$('journey-panel').hidden && this.from) this.run(); }; $('journey-close').onclick = () => this.toggle(false);
     $('journey-clear').onclick = () => { this.id++; this.worker?.postMessage({ type: 'cancel' }); this.partialComparison = undefined; $('journey-evidence').hidden = true; this.from = this.to = undefined; this.edges = []; this.symbols.clear(); this.labels(); $('journey-results').replaceChildren(); void city?.setRelations([]).catch(() => {}); this.restoreContext(); $('journey-status').textContent = 'Choose a starting symbol. Static paths are not runtime traces.'; };
     $('journey-from').onclick = () => this.search('from'); $('journey-to').onclick = () => this.search('to');
     $<HTMLInputElement>('journey-search').oninput = () => { clearTimeout(this.timer); this.timer = setTimeout(() => this.find(), 120); };
@@ -23,18 +25,18 @@ export class Journey {
     $('journey-probable').onchange = () => this.run();
     $('journey-context').onchange = () => this.restoreContext();
     $('journey-coverage').onclick = () => { this.worker?.postMessage({ type: 'coverage', file: this.file }); };
-    $('city-canvas').addEventListener('graphicode:relation-select', event => { const id = (event as CustomEvent<number>).detail; this.toggle(true); this.selectEdge(id); });
+    $('city-canvas').addEventListener('graphicode:relation-select', event => { const id = (event as CustomEvent<number>).detail; if (id >= 0) { this.toggle(true); this.selectEdge(id); } });
     if (manifest.mode !== 'diff') { for (const option of Array.from($<HTMLSelectElement>('journey-version').options)) if (option.value !== 'after') option.disabled = true; }
     if (!manifest.relationships) { $('journey-status').textContent = 'Relationships are not embedded in this export. Regenerate with --relationships auto.'; return; }
     const url = URL.createObjectURL(new Blob([Uint8Array.from(atob($('graph-worker-source').textContent!), c => c.charCodeAt(0))], { type: 'text/javascript' }));
     this.worker = new Worker(url); URL.revokeObjectURL(url);
     this.worker.onerror = event => { $('journey-status').textContent = `Graph unavailable: ${event.message}. Files and code remain accessible.`; };
     this.worker.onmessage = event => this.receive(event.data);
-    this.worker.postMessage({ type: 'init', ...manifest.relationships, changedFiles: manifest.mode === 'diff' ? manifest.files.filter(f => f.status !== 'snapshot').map(f => f.id) : [] });
+    this.worker.postMessage({ type: 'init', ...manifest.relationships, files: manifest.files, changedFiles: manifest.mode === 'diff' ? manifest.files.filter(f => f.status !== 'snapshot').map(f => f.id) : [] });
     window.addEventListener('beforeunload', () => this.worker?.terminate());
   }
-  selectFile(file: number) { this.file = file; if (!$('journey-panel').hidden && !this.from) this.search('from'); }
-  private toggle(open = $('journey-panel').hidden) { $('journey-panel').hidden = !open; $('journeys-open').setAttribute('aria-expanded', String(open)); if (open && this.ready && !this.from) this.search('from'); }
+  selectFile(file: number) { this.insights.selectFile(file); this.file = file; if (!$('journey-panel').hidden && !this.from) this.search('from'); }
+  private toggle(open = $('journey-panel').hidden) { $('journey-panel').hidden = !open; $('journeys-open').setAttribute('aria-expanded', String(open)); if (open) { $('insight-panel').hidden = true; $('insights-open').setAttribute('aria-expanded', 'false'); } if (open && this.ready && !this.from) this.search('from'); }
   private version() { return $<HTMLSelectElement>('journey-version').value; }
   private restoreContext() { void this.city?.emphasizeFiles(this.manifest.context && !$<HTMLInputElement>('journey-context').checked ? this.context : undefined); }
   private labels() { $('journey-from').textContent = this.from ? `From: ${this.from.name}` : 'Choose start'; $('journey-to').textContent = this.to ? `To: ${this.to.name}` : 'Choose destination (optional)'; }
@@ -53,7 +55,7 @@ export class Journey {
     if (this.mode === 'overview') this.worker!.postMessage({ type: 'overview', id, side, files: this.manifest.files.map(f => f.path), workspace: !!this.manifest.repositories });
     else this.worker!.postMessage({ type: 'query', id, query: { mode: this.mode, start: this.from?.id, target: this.mode === 'path' ? this.to?.id : undefined, side, probable: $<HTMLInputElement>('journey-probable').checked } });
   }
-  private receive(message: any) {
+  private receive(message: any) { if (this.insights.receive(message)) return; if (message.type === 'symbol') { this.from = message.symbol; if (message.side) $<HTMLSelectElement>('journey-version').value = message.side; this.labels(); this.toggle(true); this.mode = 'out'; this.run(); return; }
     if (message.type === 'need') this.worker!.postMessage({ type: 'block', block: message.block, data: $(message.block)?.textContent });
     else if (message.type === 'progress') $('journey-status').textContent = `Loading graph ${message.loaded}/${message.total}... Map and source are ready to use.`;
     else if (message.type === 'ready') { this.ready = true; this.context = message.context; $('journey-panel').dataset.ready = 'true'; $('journey-status').textContent = `${message.symbols.toLocaleString()} symbols / ${message.edges.toLocaleString()} connections. Static analysis, not runtime traffic.`; $('journey-coverage').textContent = `Coverage: ${message.coverage.parsed ?? 0} parsed / ${(message.coverage.partial ?? 0) + (message.coverage.unsupported ?? 0) + (message.coverage.skipped ?? 0)} limited`; this.restoreContext(); if (!$('journey-panel').hidden) this.find(); }
@@ -67,7 +69,7 @@ export class Journey {
     } else if (message.type === 'coverage') {
       const list = $('journey-results'); list.replaceChildren(text('p', `Coverage: showing ${message.rows.length} / ${message.count} records. Parsed does not mean complete runtime coverage.`, 'muted'));
       for (const row of message.rows as Coverage[]) { const item = text('div', '', 'journey-evidence'); item.append(text('strong', `${this.manifest.files[row.file]?.path ?? 'Unknown'} / ${row.side} / ${row.status}`), text('p', row.notes.join(' '))); list.append(item); }
-    } else if (message.type === 'result' && message.id === this.id) {
+    } else if (message.type === 'result' && message.id === this.id && !$('journey-panel').hidden) {
       if (this.version() === 'compare' && !this.partialComparison) { this.partialComparison = message; this.sendQuery('after'); return; }
       const before = this.partialComparison; this.partialComparison = undefined;
       this.edges = before ? [...new Map([...before.edges, ...message.edges].map(e => [e.id, e])).values()] as DisplayEdge[] : message.edges;
@@ -101,6 +103,3 @@ export class Journey {
     const target = this.symbols.get(e.to); if (target && target.file >= 0) { const next = text('button', 'Continue from destination', 'journey-path'); next.onclick = () => { this.from = target; this.labels(); this.mode = 'out'; this.run(); }; evidence.append(next); }
   }
 }
-
-
-

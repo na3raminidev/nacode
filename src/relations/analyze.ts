@@ -7,7 +7,7 @@ import ts from 'typescript';
 import { parseDocument } from 'yaml';
 import type { AnalysisFile, AnalysisConfig, ParsedFile, Declaration, RelationGraph, GraphSymbol, Relation, Side } from './model.js';
 import { sideMask } from './model.js';
-const REVISION = 'relations-2';
+const REVISION = 'relations-3';
 const supported = /\.(?:[cm]?[jt]sx?|kt|kts|java)$/;
 interface Unit { input: AnalysisFile; parsed: ParsedFile }
 interface Entry { unit: Unit; decl: Declaration; id: number }
@@ -44,12 +44,12 @@ function annotations(header: string, names: string[]): { name: string; body: str
   return values;
 }
 function mapping(header: string, retrofit = false): { method: string; path: string; constrained: boolean }[] {
-  const names = retrofit ? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'HTTP'] : ['RequestMapping', 'GetMapping', 'PostMapping', 'PutMapping', 'PatchMapping', 'DeleteMapping', 'HeadMapping'];
+  const names = retrofit ? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'HTTP', 'GetExchange', 'PostExchange', 'PutExchange', 'PatchExchange', 'DeleteExchange'] : ['RequestMapping', 'GetMapping', 'PostMapping', 'PutMapping', 'PatchMapping', 'DeleteMapping', 'HeadMapping'];
   return annotations(header, names).flatMap(a => {
     const match = a.body.match(/(?:\b(?:value|path)\s*=\s*)?(?:\[|\{)?\s*"([^"\n]*)"/);
     const route = match?.[1] ?? ''; const pathValue = a.body.match(/\b(?:value|path)\s*=\s*"([^"\n]*)"/)?.[1] ?? route;
     const dynamic = !match && a.body.trim() !== '' || /[\[{}]/.test(a.body.replace(/"[^"]*"/g, ''));
-    const method = a.name === 'RequestMapping' ? a.body.match(/RequestMethod\.(\w+)/)?.[1] ?? '*' : a.name === 'HTTP' ? a.body.match(/method\s*=\s*"(\w+)"/)?.[1] ?? 'DYNAMIC' : a.name.replace('Mapping', '').toUpperCase();
+    const method = a.name === 'RequestMapping' ? a.body.match(/RequestMethod\.(\w+)/)?.[1] ?? '*' : a.name === 'HTTP' ? a.body.match(/method\s*=\s*"(\w+)"/)?.[1] ?? 'DYNAMIC' : a.name.replace(/Mapping|Exchange/g, '').toUpperCase();
     return [{ method, path: dynamic ? '<dynamic mapping>' : pathValue, constrained: /\b(params|headers|consumes|produces)\s*=/.test(a.body) }];
   });
 }
@@ -62,13 +62,22 @@ function qualifiedType(unit: Unit, type: string): string {
   return explicit.length === 1 ? explicit[0] : unit.parsed.packageName ? `${unit.parsed.packageName}.${type}` : type;
 }
 // TypeScript sees only included in-memory sources. It cannot load plugins or execute project configuration.
-function compilerTargets(units: Unit[]): Map<string, { file: number; start: number; abstract: boolean }> {
+function compilerTargets(units: Unit[], files: AnalysisFile[]): Map<string, { file: number; start: number; abstract: boolean }> {
   const targets = new Map<string, { file: number; start: number; abstract: boolean }>();
   const groups = new Map<string, Unit[]>();
   for (const u of units) if (u.parsed.language === 'typescript') { const key = `${u.input.repo}:${u.input.side}`; if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(u); }
   for (const group of groups.values()) {
     const input = new Map(group.map(u => [`/${u.input.path}`, u]));
     const options: ts.CompilerOptions = { noEmit: true, noLib: true, allowJs: true, checkJs: true, target: ts.ScriptTarget.Latest, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, jsx: ts.JsxEmit.Preserve, skipLibCheck: true };
+    const settings = files.find(f => f.repo === group[0].input.repo && f.side === group[0].input.side && f.path === 'tsconfig.json');
+    if (settings) {
+      const parsed = ts.parseConfigFileTextToJson(settings.path, settings.text).config?.compilerOptions;
+      if (parsed && typeof parsed.baseUrl === 'string') options.baseUrl = path.posix.resolve('/', parsed.baseUrl);
+      if (parsed?.paths && typeof parsed.paths === 'object') {
+        const entries = Object.entries(parsed.paths).filter(([key, value]) => key.length < 200 && Array.isArray(value) && value.length < 20 && value.every(v => typeof v === 'string' && v.length < 500));
+        options.paths = Object.fromEntries(entries) as Record<string, string[]>; options.baseUrl ??= '/';
+      }
+    }
     const host = ts.createCompilerHost(options); host.getCurrentDirectory = () => '/'; host.fileExists = name => input.has(name); host.readFile = name => input.get(name)?.input.text;
     host.getSourceFile = (name, version) => input.has(name) ? ts.createSourceFile(name, input.get(name)!.input.text, version, true) : undefined;
     const directories = new Set<string>(['/']); for (const name of input.keys()) { let dir = path.posix.dirname(name); while (dir !== '/') { directories.add(dir); dir = path.posix.dirname(dir); } }
@@ -81,7 +90,7 @@ function compilerTargets(units: Unit[]): Map<string, { file: number; start: numb
           const declaration = checker.getResolvedSignature(node)?.declaration;
           if (declaration) { const destination = input.get(declaration.getSourceFile().fileName); if (destination) targets.set(`${unit.input.file}:${unit.input.side}:${node.getStart(source)}`, { file: destination.input.file, start: declaration.getStart(), abstract: ts.isMethodSignature(declaration) || ts.isCallSignatureDeclaration(declaration) }); }
         }
-        if (ts.isIdentifier(node) && ts.isJsxExpression(node.parent) && ts.isJsxAttribute(node.parent.parent)) {
+        if (ts.isIdentifier(node) && (ts.isJsxExpression(node.parent) && ts.isJsxAttribute(node.parent.parent) || ts.isJsxOpeningElement(node.parent) || ts.isJsxSelfClosingElement(node.parent))) {
           let symbol = checker.getSymbolAtLocation(node); if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
           let declaration: ts.Node | undefined = symbol?.valueDeclaration; if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) declaration = declaration.initializer;
           if (declaration) { const destination = input.get(declaration.getSourceFile().fileName); if (destination) targets.set(`${unit.input.file}:${unit.input.side}:${node.getStart(source)}`, { file: destination.input.file, start: declaration.getStart(), abstract: false }); }
@@ -104,7 +113,7 @@ export function assemble(units: Unit[], files: AnalysisFile[], config: AnalysisC
   const byClass = new Map<string, Entry[]>(), byMethod = new Map<string, Entry[]>();
   const addSymbol = (key: string, value: Omit<GraphSymbol, 'id' | 'key' | 'versions'>, side: Side) => {
     let id = symbolIds.get(key); if (id === undefined) { id = graph.symbols.length; symbolIds.set(key, id); graph.symbols.push({ id, key, ...value, versions: 0 }); }
-    const symbol = graph.symbols[id]; symbol.versions |= sideMask(side); if (side === 'before') symbol.beforeLine = value.line; else { symbol.line = value.line; symbol.endLine = value.endLine; }
+    const symbol = graph.symbols[id]; symbol.versions |= sideMask(side); if (side === 'before') { symbol.beforeLine = value.line; symbol.beforeEndLine = value.endLine; } else { symbol.line = value.line; symbol.endLine = value.endLine; }
     return id;
   };
   const edge = (from: number, to: number, kind: Relation['kind'], confidence: Relation['confidence'], unit: Unit, line: number, reason: string, condition?: string) => {
@@ -169,7 +178,7 @@ export function assemble(units: Unit[], files: AnalysisFile[], config: AnalysisC
         else route = route.slice(binding.baseUrl.replace(/\/$/, '').length);
       }
       if (!reason) {
-        route = normalizedRoute(route.split('?')[0]); const contract = contracts.get(`${e.unit.input.side}:${binding.service}`);
+        route = route.split('?')[0]; const stripPrefix = binding.stripPrefix?.replace(/\/+$/, ''); if (stripPrefix && (route === stripPrefix || route.startsWith(stripPrefix + '/'))) route = route.slice(stripPrefix.length); if (binding.pathPrefix) route = binding.pathPrefix + '/' + route; route = normalizedRoute(route); const contract = contracts.get(`${e.unit.input.side}:${binding.service}`);
         if (contract && !contract.has(`${method}:${route}`)) reason = 'OpenAPI contract does not declare this method/path; contract may be incomplete.';
         else target = [...(endpoints.get(`${e.unit.input.side}:${binding.service}:${method}:${route}`) ?? []), ...(endpoints.get(`${e.unit.input.side}:${binding.service}:*:${route}`) ?? [])];
         if (!reason && target.length !== 1) reason = target.length > 1 ? 'Multiple server handlers match; no endpoint was selected.' : 'No matching included server handler; scope may be incomplete.';
@@ -178,11 +187,28 @@ export function assemble(units: Unit[], files: AnalysisFile[], config: AnalysisC
     if (reason) edge(e.id, external(e, `${method} ${url}`, reason), 'http', 'unresolved', e.unit, line, reason, condition);
     else edge(e.id, target[0].entry.id, 'http', target[0].constrained || e.unit.parsed.notes.length ? 'probable' : 'resolved', e.unit, line, target[0].constrained ? 'Method/path match; additional Spring mapping conditions require verification.' : 'Explicit service binding and unique method/path match (static, not observed traffic).', condition);
   };
-  const compiler = compilerTargets(units);
+  const implementations = new Map<string, Entry[]>();
+  for (const e of entries) if (e.decl.kind === 'class') for (const base of e.decl.bases) {
+    const key = `${e.unit.input.repo}:${e.unit.input.side}:${qualifiedType(e.unit, base)}`;
+    if (!implementations.has(key)) implementations.set(key, []); implementations.get(key)!.push(e);
+  }
+  for (const e of entries) {
+    const owner = classFor(e); if (!owner || !/\binterface\b/.test(owner.decl.annotations) || e.decl.kind !== 'function') continue;
+    const choices = implementations.get(`${e.unit.input.repo}:${e.unit.input.side}:${qualifiedType(e.unit, owner.decl.name)}`) ?? [];
+    if (choices.length === 1) {
+      const targets = (byMethod.get(`${e.unit.input.repo}:${e.unit.input.side}:${choices[0].decl.name}.${e.decl.name}`) ?? []).filter(t => t.unit === choices[0].unit && t.decl.arity === e.decl.arity);
+      if (targets.length === 1) edge(e.id, targets[0].id, 'call', 'probable', e.unit, e.decl.line, 'Unique included implementation candidate; DI bindings and runtime dispatch are not proven.');
+    }
+  }
+  const compiler = compilerTargets(units, files);
   for (const e of entries) {
     const u = e.unit, d = e.decl, owner = classFor(e); const mask = sideMask(u.input.side);
     if (d.eventParent) { const parent = byLocal.get(`${u.input.file}:${u.input.side}:${d.eventParent}`); if (parent) edge(parent.id, e.id, d.eventKind ?? 'event', u.parsed.notes.length ? 'probable' : 'resolved', u, d.line, 'Explicit callback registration; execution is conditional on the event.'); }
-    for (const route of mapping(d.annotations, true)) httpEdge(e, route.method, route.path, d.owner, d.line);
+    for (const route of mapping(d.annotations, true)) {
+      const prefix = owner?.decl.annotations.match(/@HttpExchange\s*\(\s*(?:url\s*=\s*)?"([^"]+)"/)?.[1] ?? '';
+      const url = /^https?:\/\//.test(route.path) ? route.path : /^https?:\/\//.test(prefix) ? prefix.replace(/\/$/, '') + '/' + route.path.replace(/^\//, '') : normalizedRoute(prefix + '/' + route.path);
+      httpEdge(e, route.method, url, d.owner, d.line);
+    }
     for (const call of d.calls) {
       if (call.http && !compiler.has(`${u.input.file}:${u.input.side}:${call.start}`)) { httpEdge(e, call.http.method, call.http.path, call.receiver || 'fetch', call.line, call.condition); continue; }
       let candidates: Entry[] = [], confidence: Relation['confidence'] = u.parsed.notes.length ? 'probable' : 'resolved';
@@ -213,8 +239,3 @@ export function assemble(units: Unit[], files: AnalysisFile[], config: AnalysisC
   }
   return graph;
 }
-
-
-
-
-

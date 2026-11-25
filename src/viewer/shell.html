@@ -38,7 +38,21 @@
         <div class="city-location"><span id="city-depth"></span><strong id="city-frame-name"></strong><span>Scroll to explore &middot; drag to move</span></div>
         <div class="city-tools"><button id="city-parent" title="Parent neighborhood" aria-label="Parent neighborhood">&#8593;</button><button id="city-zoom-in" title="Zoom in" aria-label="Zoom in">+</button><button id="city-zoom-out" title="Zoom out" aria-label="Zoom out">&#8722;</button><button id="city-fit" title="Fit city (Home)" aria-label="Fit city">&#8962;</button></div>
         <div class="city-overview"><canvas id="city-minimap" width="180" height="120" aria-label="Local overview. Click to recenter; keyboard users can pan the main map."></canvas><span id="city-minimap-label">CITY OVERVIEW</span></div>
-                <button id="journeys-open" class="journeys-open" aria-expanded="false" aria-controls="journey-panel">Explore connections &#8599;</button>
+                <button id="insights-open" class="insights-open" aria-expanded="false" aria-controls="insight-panel">Explore insights &#8599;</button>
+        <aside id="insight-panel" class="insight-panel" aria-label="Code intelligence lenses" hidden>
+          <header><div><span class="eyebrow">TEN WAYS TO UNDERSTAND</span><h2>Beyond the files.</h2></div><button id="insight-close" aria-label="Close insights">&#215;</button></header>
+          <label for="insight-lens" class="field-label">LENS</label><select id="insight-lens"></select><p id="insight-hint" class="muted">Explore one capability across clients and services.</p>
+          <details id="insight-filters" class="insight-filters" open><summary>Scope &amp; filters</summary>
+          <label for="insight-feature" class="field-label">CAPABILITY</label><select id="insight-feature"><option value="">All included capabilities</option></select>
+          <label for="insight-search" class="field-label">SEARCH EVIDENCE</label><input id="insight-search" placeholder="Error code, component, endpoint, file..." autocomplete="off">
+          <div class="insight-options"><select id="insight-side" aria-label="Evidence version"><option value="after">After</option><option value="before">Before</option><option value="compare">Compare</option></select><label><input id="insight-probable" type="checkbox"> Probable graph edges</label></div>
+          <label class="insight-file-toggle"><input id="insight-file-only" type="checkbox"><span id="insight-file-label">Only selected file</span></label></details>
+          <p id="insight-status" role="status">Loading embedded evidence...</p><details class="insight-notes"><summary>Scope &amp; limitations</summary><p id="insight-notes"></p></details><p id="insight-map-note" class="muted"></p>
+          <div class="journey-actions"><button id="insight-cancel">Cancel</button><button id="insight-clear">Clear map focus</button></div>
+          <section id="insight-detail" class="journey-evidence" aria-label="Selected evidence" hidden></section><div id="insight-results"></div>
+          <nav class="insight-pages" aria-label="Evidence pages"><button id="insight-prev" disabled>Previous 100</button><button id="insight-next" disabled>Next 100</button></nav>
+        </aside>
+        <button id="journeys-open" class="journeys-open" aria-expanded="false" aria-controls="journey-panel">Explore connections &#8599;</button>
         <aside id="journey-panel" class="journey-panel" aria-label="Code journeys" hidden>
           <header><div><span class="eyebrow">STATIC CONNECTIONS</span><h2>Follow the code.</h2></div><button id="journey-close" aria-label="Close journeys">&#215;</button></header>
           <div class="journey-controls"><button id="journey-from">Choose start</button><button id="journey-to">Choose destination (optional)</button></div>
@@ -59,6 +73,3 @@
 <dialog id="line-dialog" class="line-dialog"><form id="line-form"><label for="line-input">Go to line</label><input id="line-input" type="number" min="1" required><button class="primary" type="submit">Go</button><button id="line-cancel" type="button">Cancel</button></form></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
 <noscript><div class="fatal">JavaScript is required to explore this offline export.</div></noscript>
-
-
-

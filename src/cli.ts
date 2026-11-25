@@ -17,15 +17,26 @@ function common(command: Command) {
     .option('--dry-run', 'show scope and exclusions without writing HTML')
     .option('--allow-large', 'allow more than 20,000 files or 100 MiB of source')
     .option('--relationships <mode>', 'relationship analysis: auto or off', 'auto')
+    .option('--history', 'embed bounded local Git history (commit subjects may be private)')
+    .option('--history-limit <count>', 'commits scanned per selected ref, 1-2000', '500')
+    .option('--history-refs <refs>', 'additional local refs, comma separated, maximum 7')
     .option('--force', 'replace an existing output HTML');
 }
 async function run(mode: 'snapshot' | 'diff' | 'workspace', folder: string, opts: Options & { dryRun?: boolean; allowLarge?: boolean; force?: boolean }) {
   if (!['auto', 'off'].includes(opts.relationships ?? 'auto')) throw new Error('--relationships must be auto or off');
+  if (opts.history && opts.relationships === 'off') throw new Error('--history requires relationships enabled.');
   if (mode === 'diff') {
     if (opts.workingTree ? opts.base || opts.head : !opts.base || !opts.head) throw new Error('Use either --working-tree or both --base <ref> --head <ref>.');
     if (opts.includeUntracked && !opts.workingTree) throw new Error('--include-untracked requires --working-tree.');
   }
   const data = mode === 'workspace' ? await workspace(folder, opts) : mode === 'snapshot' ? await snapshot(folder, opts) : await comparison(folder, opts);
+  if (opts.history) {
+    const limit = Number(opts.historyLimit ?? 500), refs = (opts.historyRefs ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 2000 || refs.length > 7 || refs.some(r => r.length > 200 || /[\x00-\x20]/.test(r))) throw new Error('History limit must be 1-2000 with at most 7 valid explicit refs.');
+    data.history = { limit, refs };
+    if (mode !== 'workspace') data.historyBase = { root: opts.head ?? 'HEAD' };
+    console.log('History export: bounded local commit subjects and selected ref identities are embedded. Review before sharing.');
+  }
   const outputMode = mode === 'workspace' ? data.comparison ? 'diff' : 'snapshot' : mode;
   const bytes = data.files.reduce((sum, f) => sum + (f.before?.size ?? 0) + (f.after?.size ?? 0), 0);
   console.log(`${data.files.length.toLocaleString()} files | ${formatBytes(bytes)} source${data.comparison ? ` | ${data.comparison}` : ''}`);
@@ -51,4 +62,3 @@ common(program.command('diff').argument('<repo>', 'local Git repository'))
   .action((folder, opts) => run('diff', folder, opts));
 common(program.command('workspace').argument('<config>', 'local JSON workspace configuration')).action((config, opts) => run('workspace', config, opts));
 program.parseAsync().catch(error => { console.error(`Error: ${error.message}`); process.exitCode = 1; });
-
