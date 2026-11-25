@@ -4,8 +4,17 @@ import {workspace} from '../src/generator/workspace.js';
 import {exportHTML} from '../src/generator/export.js';
 const root=path.resolve('test-results/journey-fixture');
 const files:Record<string,string>={
- 'web/src/page.ts':`import {loadOrders} from './api'; export function openOrders() { return loadOrders(); }`,
- 'web/src/api.ts':`export function loadOrders() { return fetch('/orders'); }`,
+ 'web/src/page.ts':`import {loadOrders, loadFirst, loadSecond, legacyValue, newValue} from './api';
+export function openOrders() { return loadOrders(); }
+
+export function inspectLinks() {
+  return loadFirst() + loadSecond() + newValue();
+}`,
+ 'web/src/api.ts':`export function loadOrders() { return fetch('/orders'); }
+export function loadFirst() { return 1; }
+export function loadSecond() { return 2; }
+export function legacyValue() { return 3; }
+export function newValue() { return 4; }`,
  'android/OrdersApi.kt':`interface OrdersApi {\n @GET("/orders")\n fun load(): String\n}\n`,
  'android/OrdersViewModel.kt':`class OrdersViewModel(val api: OrdersApi) {\n fun refresh() { api.load() }\n}\n`,
  'api/OrdersController.java':`@RestController class OrdersController { OrdersService service; @GetMapping("/orders") String list() { return service.load(); } }`,
@@ -22,5 +31,5 @@ console.log(out);
 
 
 const diff=await workspace(configPath,opts); diff.context=true;diff.comparison='Fixture: orders_archive -> orders';
-for(const file of diff.files){const after=files[`${file.repo}/${file.localPath}`];const before=file.path.endsWith('/Order.java')?after.replace('name="orders"','name="orders_archive"'):after;const old=path.join(root,'.before',file.path);await mkdir(path.dirname(old),{recursive:true});await writeFile(old,before);file.before={disk:old,size:Buffer.byteLength(before)};file.status=before===after?'snapshot':'modified';}
+for(const file of diff.files){const after=files[`${file.repo}/${file.localPath}`];const before=file.path.endsWith('/Order.java')?after.replace('name="orders"','name="orders_archive"'):file.path.endsWith('/page.ts')?'// Before\n\n'+after.replace('+ newValue()', '+ legacyValue()'):after;const old=path.join(root,'.before',file.path);await mkdir(path.dirname(old),{recursive:true});await writeFile(old,before);file.before={disk:old,size:Buffer.byteLength(before)};file.status=before===after?'snapshot':'modified';}
 await exportHTML(diff,path.resolve('output/journeys-diff.html'),'diff',true,path.resolve('dist/assets'));

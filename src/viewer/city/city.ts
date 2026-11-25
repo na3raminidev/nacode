@@ -1,14 +1,17 @@
-import { RouteOverlay, type MapRelation } from './routes.js';
+import { RouteOverlay } from './routes.js';
+import { ConnectionCard, type Connection } from './connection-card.js';
 import { formatBytes, type Manifest } from '../../model.js';
+import type { Side } from '../../relations/model.js';
 import { type CityLayout, type CityNode } from './layout.js';
 import { type Camera, type Viewport, fitCamera, zoomCamera, rebase, parentCamera } from './camera.js';
 import { CityRenderer, hitFeature, type CityFrame } from './renderer.js';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-interface Options { openFile: (id: number) => void; error: (message: string) => void }
+interface Options { openFile: (id: number) => void; openEvidence: (id: number, line: number, side: Side) => void; error: (message: string) => void }
 export class City {
   readonly ready: Promise<void>;
   private layout?: CityLayout;
   private routes?: RouteOverlay;
+  private connections: ConnectionCard;
   private emphasis?: Set<number>;
   private camera: Camera = { frame: 0, x: 800, y: 550, scale: .5 };
   private viewport: Viewport = { w: 1000, h: 700 };
@@ -33,6 +36,10 @@ export class City {
   private changes = false;
   private displayedFrame = -1;
   private destroyed = false;
+  private escapeConnection = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape' || event.defaultPrevented || $('map-view').hidden || document.querySelector('dialog[open]')) return;
+    if (this.connections.close()) { event.preventDefault(); event.stopPropagation(); }
+  };
   constructor(private manifest: Manifest, private options: Options) {
     this.ready = new Promise((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
     this.renderer = new CityRenderer(this.canvas); this.renderer.setTheme(document.documentElement.dataset.theme === 'dark');
@@ -53,6 +60,11 @@ export class City {
     };
     this.worker.onerror = event => this.fail(`City layout failed: ${event.message}`);
     this.worker.postMessage({ files: manifest.files.map(f => ({ id: f.id, path: f.path, status: f.status, additions: f.additions, deletions: f.deletions, before: f.before ? { bytes: f.before.bytes } : undefined, after: f.after ? { bytes: f.after.bytes } : undefined })), name: manifest.name });
+    this.connections = new ConnectionCard(manifest, {
+      highlight: (ids, guideId) => { if (this.routes) { this.routes.selected = new Set(ids); this.routes.guideId = guideId; } this.invalidate(); },
+      open: options.openEvidence, focus: id => { void this.selectFile(id).catch(() => {}); },
+    });
+    document.addEventListener('keydown', this.escapeConnection, true);
     this.observer = new ResizeObserver(() => this.resize()); this.observer.observe($('map-view'));
     document.fonts.ready.then(() => { this.renderer.refreshFonts(); this.invalidate(); });
     this.bindControls();
@@ -61,14 +73,20 @@ export class City {
     $<HTMLInputElement>('city-changes').disabled = manifest.mode !== 'diff';
     this.changes = manifest.mode === 'diff'; $<HTMLInputElement>('city-changes').checked = this.changes;
   }
-  async setRelations(edges: MapRelation[], comparison = false) { await this.ready; this.routes?.set(edges, comparison); this.invalidate(); }
+  async setRelations(edges: Connection[], comparison = false) {
+    await this.ready; if (!this.routes) return;
+    this.clearHover(); this.routes.set(edges, comparison);
+    this.connections.set(edges, this.routes.relations.map(edge => edge.id)); this.invalidate();
+  }
   async emphasizeFiles(files?: number[]) {
     await this.ready; this.emphasis = files ? new Set<number>() : undefined;
     if (files && this.layout) for (const file of files) { let id = this.files.get(file); while (id !== undefined && id >= 0) { this.emphasis!.add(id); id = this.layout.nodes[id].parent; } }
     this.invalidate();
   }
   highlightRoute(ids: number[]) { if (this.routes) this.routes.highlightedRoute = new Set(ids); this.invalidate(); }
-  highlightRelation(id: number) { if (this.routes) this.routes.highlighted = id; this.invalidate(); }  private fail(message: string) { $('city-loading').textContent = `${message} Open Files to continue browsing.`; this.rejectReady(new Error(message)); this.options.error(message); }
+  inspectConnection(id: number) { this.clearHover(); this.connections.inspect(id); }
+  browseConnections() { this.clearHover(); this.connections.browse(); }
+  private fail(message: string) { $('city-loading').textContent = `${message} Open Files to continue browsing.`; this.rejectReady(new Error(message)); this.options.error(message); }
   resize() {
     const bounds = this.canvas.getBoundingClientRect(); if (bounds.width < 1 || bounds.height < 1) return;
     this.viewport = { w: bounds.width, h: bounds.height }; this.invalidate();
@@ -79,7 +97,14 @@ export class City {
     if (!this.layout || this.canvas.clientWidth === 0 || $('map-view').hidden) return;
     const started = performance.now(); this.camera = rebase(this.camera, this.layout, this.viewport);
     this.frame = this.renderer.render(this.layout, this.camera, this.viewport, this.selected, this.hovered, this.changes, this.emphasis);
-    if (this.routes) { const stats = this.routes.draw(this.canvas.getContext('2d')!, this.frame.features, this.camera, this.viewport, document.documentElement.dataset.theme === 'dark'); this.canvas.dataset.routes = String(stats.drawn); const status = $('route-map-status'); if (status) status.textContent = `${stats.drawn} map connections${stats.hidden ? ` / ${stats.hidden} outside view, external or unroutable` : ''}${stats.pending ? ' / routing...' : ''}`; if (stats.pending) this.invalidate(); }
+    if (this.routes) {
+      const stats = this.routes.draw(this.canvas.getContext('2d')!, this.frame.features, this.camera, this.viewport, document.documentElement.dataset.theme === 'dark');
+      this.canvas.dataset.routes = String(stats.drawn); this.connections.updateMap(stats.guide, this.viewport.w, stats.focusX);
+      const status = $('route-map-status');
+      const message = this.routes.relations.length ? `${stats.drawn} visible ${stats.drawn === 1 ? 'path' : 'paths'}${stats.hidden ? ` / ${stats.hidden} links not drawn` : ''}${stats.pending ? ' / routing...' : ''}` : '';
+      if (status.textContent !== message) status.textContent = message;
+      if (stats.pending) this.invalidate();
+    }
     this.renderer.minimap($<HTMLCanvasElement>('city-minimap'), this.layout, this.camera, this.viewport);
     const focus = this.layout.nodes[this.camera.frame];
     this.canvas.dataset.frame = focus.path; this.canvas.dataset.scale = this.camera.scale.toFixed(5);
@@ -177,10 +202,13 @@ export class City {
     $('city-empty').hidden = this.manifest.files.length > 0;
   }
   private local(event: { clientX: number; clientY: number }) { const rect = this.canvas.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; }
-  private pick(point: { x: number; y: number }) {
+  private pick(point: { x: number; y: number }, touch = false) {
     if (!this.frame || !this.layout) return;
-    const relation = this.routes?.hit(point.x, point.y); if (relation !== undefined) { this.canvas.dispatchEvent(new CustomEvent('graphicode:relation-select', { detail: relation })); return; }
-    const id = hitFeature(this.frame.features, point.x, point.y); if (id === undefined) return;
+    const id = hitFeature(this.frame.features, point.x, point.y);
+    const building = id !== undefined && this.layout.nodes[id].kind === 'file';
+    const relation = this.routes?.hit(point.x, point.y, building ? 3.5 : touch ? 16 : 10, building ? 0 : touch ? 11 : 6);
+    if (relation) { this.clearHover(); this.connections.inspectHit(relation.ids, relation.count); return; }
+    if (id === undefined) return;
     const node = this.layout.nodes[id];
     if (node.file !== undefined) this.options.openFile(node.file);
     else if (node.id === this.camera.frame) this.zoom(1.8, point);
@@ -189,25 +217,42 @@ export class City {
   private hover(point: { x: number; y: number }) {
     if (!this.frame || !this.layout) return;
     const id = hitFeature(this.frame.features, point.x, point.y);
-    if (this.hovered !== id) { this.hovered = id; this.invalidate(); }
+    const building = id !== undefined && this.layout.nodes[id].kind === 'file';
+    const relation = this.routes?.hit(point.x, point.y, building ? 3.5 : 10, building ? 0 : 6);
+    const hovered = relation ? undefined : id;
+    if (this.hovered !== hovered || this.routes?.hovered !== relation?.key) {
+      this.hovered = hovered; if (this.routes) this.routes.hovered = relation?.key;
+      this.canvas.classList.toggle('connection-hover', !!relation); this.invalidate();
+    }
     const tooltip = $('city-tooltip'); const node = id === undefined ? undefined : this.layout.nodes[id];
-    if (!node || node.kind === 'city') { tooltip.hidden = true; return; }
-    $('city-tooltip-name').textContent = node.path.startsWith('\0') ? node.name : node.path;
-    $('city-tooltip-meta').textContent = `${node.kind === 'file' ? node.status === 'snapshot' ? 'FILE' : node.status?.toUpperCase() : node.kind.toUpperCase()} / ${formatBytes(node.bytes)}${node.kind !== 'file' ? ` / ${node.count} files` : ''}`;
+    if (relation) {
+      $('city-tooltip-name').textContent = relation.count > 1 ? `${relation.count} grouped connections` : 'Inspect connection';
+      $('city-tooltip-meta').textContent = 'Click for direction and evidence';
+    } else {
+      if (!node || node.kind === 'city') { tooltip.hidden = true; return; }
+      $('city-tooltip-name').textContent = node.path.startsWith('\0') ? node.name : node.path;
+      $('city-tooltip-meta').textContent = `${node.kind === 'file' ? node.status === 'snapshot' ? 'FILE' : node.status?.toUpperCase() : node.kind.toUpperCase()} / ${formatBytes(node.bytes)}${node.kind !== 'file' ? ` / ${node.count} files` : ''}`;
+    }
     tooltip.style.left = `${Math.max(10, Math.min(this.viewport.w - 280, point.x + 18))}px`;
     tooltip.style.top = `${Math.max(10, Math.min(this.viewport.h - 65, point.y + 18))}px`; tooltip.hidden = false;
+  }
+  private clearHover() {
+    $('city-tooltip').hidden = true; this.hovered = undefined;
+    if (this.routes) this.routes.hovered = undefined;
+    this.canvas.classList.remove('connection-hover'); this.invalidate();
   }
   private bindControls() {
     $('city-zoom-in').onclick = () => this.zoom(1.5); $('city-zoom-out').onclick = () => this.zoom(1 / 1.5);
     $('city-fit').onclick = () => this.fit();
     $('city-parent').onclick = () => { if (this.layout) { const node = this.layout.nodes[this.camera.frame]; this.focus(node.parent >= 0 ? node.parent : 0); } };
     $<HTMLInputElement>('city-changes').onchange = event => { this.changes = (event.target as HTMLInputElement).checked; this.invalidate(); };
-    this.canvas.addEventListener('wheel', event => { event.preventDefault(); $('city-tooltip').hidden = true; this.zoom(Math.exp(-Math.max(-300, Math.min(300, event.deltaY * (event.deltaMode === 1 ? 16 : 1))) * .003), this.local(event)); }, { passive: false });
+    this.canvas.addEventListener('wheel', event => { event.preventDefault(); clearTimeout(this.clickTimer); this.clearHover(); this.zoom(Math.exp(-Math.max(-300, Math.min(300, event.deltaY * (event.deltaMode === 1 ? 16 : 1))) * .003), this.local(event)); }, { passive: false });
     this.canvas.addEventListener('pointerdown', event => {
       if (event.button !== 0 && event.pointerType === 'mouse') return;
+      clearTimeout(this.clickTimer); this.clearHover();
       this.canvas.focus({ preventScroll: true }); this.canvas.setPointerCapture(event.pointerId);
       const point = this.local(event); this.pointer.set(event.pointerId, point);
-      this.down = { ...point, moved: this.pointer.size > 1 }; this.canvas.classList.add('dragging'); $('city-tooltip').hidden = true;
+      this.down = { ...point, moved: this.pointer.size > 1 }; this.canvas.classList.add('dragging');
     });
     this.canvas.addEventListener('pointermove', event => {
       const point = this.local(event), previous = this.pointer.get(event.pointerId);
@@ -227,13 +272,13 @@ export class City {
     const end = (event: PointerEvent) => {
       const wasTracked = this.pointer.delete(event.pointerId);
       if (event.type === 'pointerup' && wasTracked && !this.down?.moved && this.pointer.size === 0) {
-        clearTimeout(this.clickTimer); const point = this.local(event); this.clickTimer = setTimeout(() => this.pick(point), event.pointerType === 'touch' ? 0 : 180);
+        clearTimeout(this.clickTimer); const point = this.local(event), touch = event.pointerType === 'touch'; this.clickTimer = setTimeout(() => this.pick(point, touch), touch ? 0 : 180);
       }
       if (!this.pointer.size) { this.down = undefined; this.canvas.classList.remove('dragging'); }
       else if (this.down) this.down.moved = true;
     };
     this.canvas.addEventListener('pointerup', end); this.canvas.addEventListener('pointercancel', end); this.canvas.addEventListener('lostpointercapture', end);
-    this.canvas.addEventListener('pointerleave', () => { $('city-tooltip').hidden = true; this.hovered = undefined; this.invalidate(); });
+    this.canvas.addEventListener('pointerleave', () => this.clearHover());
     this.canvas.addEventListener('dblclick', event => { event.preventDefault(); clearTimeout(this.clickTimer); this.zoom(2, this.local(event)); });
     this.canvas.addEventListener('keydown', event => {
       const key = event.key; if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', '+', '=', '-', 'Home', 'Enter', 'Escape'].includes(key)) return;
@@ -252,7 +297,7 @@ export class City {
       this.camera.x = (point.x - (180 - node.width * scale) / 2) / scale; this.camera.y = (point.y - (120 - node.height * scale) / 2) / scale; this.invalidate();
     };
   }
-  destroy() { this.destroyed = true; cancelAnimationFrame(this.raf); cancelAnimationFrame(this.animation); clearTimeout(this.clickTimer); clearTimeout(this.locationTimer); this.observer.disconnect(); this.worker.terminate(); }
+  destroy() { this.destroyed = true; cancelAnimationFrame(this.raf); cancelAnimationFrame(this.animation); clearTimeout(this.clickTimer); clearTimeout(this.locationTimer); this.observer.disconnect(); this.worker.terminate(); document.removeEventListener('keydown', this.escapeConnection, true); }
 }
 
 

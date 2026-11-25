@@ -30,7 +30,7 @@
       </section>
       </section>
       <section id="map-view" class="map-view" aria-label="Interactive code city">
-        <canvas id="city-canvas" tabindex="0" aria-label="Code city. Drag to pan, scroll or pinch to zoom. Arrow keys move, plus and minus zoom, Home fits the city, Enter explores the center. Use Places or Files for accessible navigation."></canvas>
+        <canvas id="city-canvas" tabindex="0" aria-label="Code city. Drag to pan, scroll or pinch to zoom. Arrow keys move, plus and minus zoom, Home fits the city, Enter explores the center. Use Map links to inspect connections with the keyboard."></canvas>
         <div class="city-heading"><span id="city-scope" class="eyebrow"></span><h1>Your code, mapped<span>.</span></h1><span id="city-total"></span></div>
         <div id="city-breadcrumbs" class="city-breadcrumbs" aria-label="City path"></div>
         <div id="city-loading" class="city-loading" role="status">Laying out your city...</div><div id="city-empty" class="city-loading" hidden>No included files. Check your export filters.</div>
@@ -48,7 +48,7 @@
           <div class="insight-options"><select id="insight-side" aria-label="Evidence version"><option value="after">After</option><option value="before">Before</option><option value="compare">Compare</option></select><label><input id="insight-probable" type="checkbox"> Probable graph edges</label></div>
           <label class="insight-file-toggle"><input id="insight-file-only" type="checkbox"><span id="insight-file-label">Only selected file</span></label></details>
           <p id="insight-status" role="status">Loading embedded evidence...</p><details class="insight-notes"><summary>Scope &amp; limitations</summary><p id="insight-notes"></p></details><p id="insight-map-note" class="muted"></p>
-          <div class="journey-actions"><button id="insight-cancel">Cancel</button><button id="insight-clear">Clear map focus</button></div>
+          <div class="journey-actions"><button id="insight-map-links" aria-controls="connection-card" hidden>Inspect map links</button><button id="insight-cancel">Cancel</button><button id="insight-clear">Clear map focus</button></div>
           <section id="insight-detail" class="journey-evidence" aria-label="Selected evidence" hidden></section><div id="insight-results"></div>
           <nav class="insight-pages" aria-label="Evidence pages"><button id="insight-prev" disabled>Previous 100</button><button id="insight-next" disabled>Next 100</button></nav>
         </aside>
@@ -59,10 +59,15 @@
           <label id="journey-search-label" for="journey-search" class="eyebrow">FIND A SYMBOL</label><input id="journey-search" placeholder="Search functions, classes, endpoints..." autocomplete="off"><div id="journey-search-results" class="journey-search-results"></div>
           <nav class="journey-modes" aria-label="Relationship direction"><button id="journey-in">Incoming</button><button id="journey-out">Outgoing</button><button id="journey-journey">Journey</button><button id="journey-path">Routes to</button><button id="journey-overview">Overview</button></nav>
           <div class="journey-options"><select id="journey-version" aria-label="Relationship version"><option value="after">After</option><option value="before">Before</option><option value="compare">Compare</option></select><label><input id="journey-probable" type="checkbox"> Include probable</label><label><input id="journey-context" type="checkbox"> Full city</label></div>
-          <p class="muted">Solid: resolved &middot; dashed: uncertain<br>Compare: green added / red removed. Static paths, not runtime traces.</p>
+          <p class="muted">Dashed: uncertain or removed<br>Compare: + added / &minus; removed. Static paths, not runtime traces.</p>
           <p id="journey-status" role="status">Loading connections...</p><div class="journey-actions"><button id="journey-coverage">Analysis coverage</button><button id="journey-cancel">Cancel</button><button id="journey-clear">Clear</button></div>
-          <div id="journey-evidence" class="journey-evidence" hidden></div><div id="journey-results"></div>
+          <div id="journey-results"></div>
         </aside><div id="route-map-status" class="route-map-status" role="status"></div>
+        <button id="connection-list-open" class="connection-list-open" aria-expanded="false" aria-controls="connection-card" hidden>Map links</button>
+        <section id="connection-card" class="connection-card" aria-labelledby="connection-title" hidden>
+          <header><div><span class="eyebrow">MAP / CONNECTIONS</span><h2 id="connection-title">Connection details</h2></div><button id="connection-close" type="button" aria-label="Close connection details">&#215;</button></header>
+          <div id="connection-body" class="connection-body"></div>
+        </section>
         <div id="city-tooltip" class="city-tooltip" hidden><strong id="city-tooltip-name"></strong><span id="city-tooltip-meta"></span></div>
       </section>    </main>
   </div>

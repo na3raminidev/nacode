@@ -373,7 +373,7 @@ function readHash() {
 }
 window.addEventListener('hashchange', readHash);
 navigate('map'); $('app').classList.remove('navigation-open'); syncWorkspace(); rebuildTree();
-try { city = new City(manifest, { openFile: id => { if (files[id]) void openFile(files[id], 1, undefined, true, false); }, error: toast }); void city.ready.catch(() => navigate('files')); } catch (error) { toast((error as Error).message); navigate('files'); }
+try { city = new City(manifest, { openFile: id => { if (files[id]) void openFile(files[id], 1, undefined, true, false); }, openEvidence: (id, line, side) => { if (files[id]) void openFile(files[id], line, side, true, false); }, error: toast }); void city.ready.catch(() => navigate('files')); } catch (error) { toast((error as Error).message); navigate('files'); }
 journey = new Journey(manifest, city, (id, line, side) => { if (files[id]) void openFile(files[id], line, side, true, false); });
 readHash();
 window.addEventListener('beforeunload', () => { worker.terminate(); city?.destroy(); });

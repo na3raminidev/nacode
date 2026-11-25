@@ -1,6 +1,7 @@
 import { Insights } from './insights.js';
 import type { Manifest } from '../model.js';
 import type { City } from './city/city.js';
+import type { Connection } from './city/connection-card.js';
 import type { GraphSymbol, Relation, GraphResult, GraphQuery, Side, Coverage } from '../relations/model.js';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const text = (tag: string, value: string, cls = '') => { const e = document.createElement(tag); e.textContent = value; e.className = cls; return e; };
@@ -12,11 +13,12 @@ export class Journey {
   private searchTarget: 'from' | 'to' = 'from'; private timer?: ReturnType<typeof setTimeout>;
   private symbols = new Map<number, GraphSymbol>(); private edges: DisplayEdge[] = [];
   private mode: GraphQuery['mode'] = 'journey'; private context: number[] = [];
-  private lastResult?: GraphResult; private partialComparison?: { edges: DisplayEdge[]; result: GraphResult; symbols: GraphSymbol[] };
-  constructor(private manifest: Manifest, private city: City | undefined, private open: (file: number, line: number, side: Side) => void) {
+  private requestedVersion: Connection['side'] = 'after';
+  private partialComparison?: { edges: DisplayEdge[]; result: GraphResult; symbols: GraphSymbol[] };
+  constructor(private manifest: Manifest, private city: City | undefined, open: (file: number, line: number, side: Side) => void) {
     this.insights = new Insights(manifest, city, open, value => this.worker?.postMessage(value));
     $('journeys-open').onclick = () => { this.toggle(); if (!$('journey-panel').hidden && this.from) this.run(); }; $('journey-close').onclick = () => this.toggle(false);
-    $('journey-clear').onclick = () => { this.id++; this.worker?.postMessage({ type: 'cancel' }); this.partialComparison = undefined; $('journey-evidence').hidden = true; this.from = this.to = undefined; this.edges = []; this.symbols.clear(); this.labels(); $('journey-results').replaceChildren(); void city?.setRelations([]).catch(() => {}); this.restoreContext(); $('journey-status').textContent = 'Choose a starting symbol. Static paths are not runtime traces.'; };
+    $('journey-clear').onclick = () => { this.id++; this.worker?.postMessage({ type: 'cancel' }); this.partialComparison = undefined; this.from = this.to = undefined; this.edges = []; this.symbols.clear(); this.labels(); $('journey-results').replaceChildren(); void city?.setRelations([]).catch(() => {}); this.restoreContext(); $('journey-status').textContent = 'Choose a starting symbol. Static paths are not runtime traces.'; };
     $('journey-from').onclick = () => this.search('from'); $('journey-to').onclick = () => this.search('to');
     $<HTMLInputElement>('journey-search').oninput = () => { clearTimeout(this.timer); this.timer = setTimeout(() => this.find(), 120); };
     for (const mode of ['in', 'out', 'journey', 'path', 'overview'] as const) $(`journey-${mode}`).onclick = () => { this.mode = mode; this.run(); };
@@ -25,7 +27,6 @@ export class Journey {
     $('journey-probable').onchange = () => this.run();
     $('journey-context').onchange = () => this.restoreContext();
     $('journey-coverage').onclick = () => { this.worker?.postMessage({ type: 'coverage', file: this.file }); };
-    $('city-canvas').addEventListener('graphicode:relation-select', event => { const id = (event as CustomEvent<number>).detail; if (id >= 0) { this.toggle(true); this.selectEdge(id); } });
     if (manifest.mode !== 'diff') { for (const option of Array.from($<HTMLSelectElement>('journey-version').options)) if (option.value !== 'after') option.disabled = true; }
     if (!manifest.relationships) { $('journey-status').textContent = 'Relationships are not embedded in this export. Regenerate with --relationships auto.'; return; }
     const url = URL.createObjectURL(new Blob([Uint8Array.from(atob($('graph-worker-source').textContent!), c => c.charCodeAt(0))], { type: 'text/javascript' }));
@@ -37,7 +38,7 @@ export class Journey {
   }
   selectFile(file: number) { this.insights.selectFile(file); this.file = file; if (!$('journey-panel').hidden && !this.from) this.search('from'); }
   private toggle(open = $('journey-panel').hidden) { $('journey-panel').hidden = !open; $('journeys-open').setAttribute('aria-expanded', String(open)); if (open) { $('insight-panel').hidden = true; $('insights-open').setAttribute('aria-expanded', 'false'); } if (open && this.ready && !this.from) this.search('from'); }
-  private version() { return $<HTMLSelectElement>('journey-version').value; }
+  private version() { return $<HTMLSelectElement>('journey-version').value as Connection['side']; }
   private restoreContext() { void this.city?.emphasizeFiles(this.manifest.context && !$<HTMLInputElement>('journey-context').checked ? this.context : undefined); }
   private labels() { $('journey-from').textContent = this.from ? `From: ${this.from.name}` : 'Choose start'; $('journey-to').textContent = this.to ? `To: ${this.to.name}` : 'Choose destination (optional)'; }
   private search(target: 'from' | 'to') { this.searchTarget = target; $('journey-search-label').textContent = target === 'from' ? 'STARTING SYMBOL' : 'DESTINATION SYMBOL'; $('journey-search-results').hidden = false; $<HTMLInputElement>('journey-search').value = ''; this.find(); $<HTMLInputElement>('journey-search').focus(); }
@@ -48,7 +49,7 @@ export class Journey {
   private run() {
     if (!this.ready) { $('journey-status').textContent = 'Graph is still loading or was not exported.'; return; }
     if (this.mode !== 'overview' && !this.from || this.mode === 'path' && !this.to) { $('journey-status').textContent = this.mode === 'path' ? 'Choose start and destination.' : 'Choose a starting symbol.'; this.search(!this.from ? 'from' : 'to'); return; }
-    this.worker!.postMessage({ type: 'cancel' }); this.partialComparison = undefined; $('journey-status').textContent = 'Finding bounded static routes...'; this.sendQuery(this.version() === 'compare' ? 'before' : this.version() as Side);
+    this.worker!.postMessage({ type: 'cancel' }); this.partialComparison = undefined; this.requestedVersion = this.version(); $('journey-status').textContent = 'Finding bounded static routes...'; this.sendQuery(this.requestedVersion === 'compare' ? 'before' : this.requestedVersion);
   }
   private sendQuery(side: Side) {
     const id = ++this.id;
@@ -70,36 +71,42 @@ export class Journey {
       const list = $('journey-results'); list.replaceChildren(text('p', `Coverage: showing ${message.rows.length} / ${message.count} records. Parsed does not mean complete runtime coverage.`, 'muted'));
       for (const row of message.rows as Coverage[]) { const item = text('div', '', 'journey-evidence'); item.append(text('strong', `${this.manifest.files[row.file]?.path ?? 'Unknown'} / ${row.side} / ${row.status}`), text('p', row.notes.join(' '))); list.append(item); }
     } else if (message.type === 'result' && message.id === this.id && !$('journey-panel').hidden) {
-      if (this.version() === 'compare' && !this.partialComparison) { this.partialComparison = message; this.sendQuery('after'); return; }
+      const side = this.requestedVersion;
+      if (side === 'compare' && !this.partialComparison) { this.partialComparison = message; this.sendQuery('after'); return; }
       const before = this.partialComparison; this.partialComparison = undefined;
       this.edges = before ? [...new Map([...before.edges, ...message.edges].map(e => [e.id, e])).values()] as DisplayEdge[] : message.edges;
-      this.symbols = new Map([...(before?.symbols ?? []), ...message.symbols].map((s: GraphSymbol) => [s.id, s])); this.lastResult = message.result;
-      this.showResult(message.result, before?.result); void this.city?.setRelations(this.edges.map(e => ({ id: e.id, fromFile: this.symbols.get(e.from)!.file, toFile: this.symbols.get(e.to)!.file, confidence: e.confidence, versions: e.versions, kind: e.kind, count: e.count, route: message.result.paths.findIndex((p: number[]) => p.includes(e.id)) >= 0 ? message.result.paths.findIndex((p: number[]) => p.includes(e.id)) : undefined })), this.version() === 'compare');
+      this.symbols = new Map([...(before?.symbols ?? []), ...message.symbols].map((s: GraphSymbol) => [s.id, s]));
+      const routes = new Map<number, number>();
+      for (const result of [message.result as GraphResult, before?.result]) result?.paths.forEach((path, index) => { for (const id of path) if (!routes.has(id)) routes.set(id, index); });
+      this.showResult(message.result, side, before?.result);
+      void this.city?.setRelations(this.edges.map(edge => this.connection(edge, side, routes.get(edge.id))), side === 'compare').catch(() => {});
       const focus = [...new Set([...this.edges.flatMap(e => [this.symbols.get(e.from)!.file, this.symbols.get(e.to)!.file]), ...this.context])].filter(f => f >= 0);
       void this.city?.emphasizeFiles(focus.length && this.mode !== 'overview' ? focus : this.manifest.context && !$<HTMLInputElement>('journey-context').checked ? this.context : undefined);
       if (this.mode === 'path' || this.mode === 'journey' || this.mode === 'overview') this.city?.fit();
     } else if (message.type === 'error' && (message.id === undefined || message.id === this.id)) $('journey-status').textContent = `Graph unavailable: ${message.message}. Code browsing remains available.`;
   }
-  private showResult(result: GraphResult, before?: GraphResult) { $('journey-evidence').hidden = true;
+  private showResult(result: GraphResult, version: Connection['side'], before?: GraphResult) {
     const list = $('journey-results'); list.replaceChildren();
     $('journey-status').textContent = `${this.edges.length} connections / ${result.visited} states inspected. ${result.reason ?? ''}${before ? ` Before: ${before.reason ?? `${before.paths.length} routes`}. Before and after are queried separately.` : ''}`;
     if (before) list.append(text('h3', 'Before / after comparison'));
-    for (const [side, data] of before ? [['before', before], ['after', result]] as const : [[this.version(), result]] as const) for (let i = 0; i < data.paths.length; i++) {
+    for (const [side, data] of before ? [['before', before], ['after', result]] as const : [[version, result]] as const) for (let i = 0; i < data.paths.length; i++) {
       const route = text('button', `${side.toUpperCase()} / Route ${i + 1} / ${data.paths[i].length} steps`, 'journey-path'); route.onclick = () => { const ids = new Set(data.paths[i]); this.city?.highlightRoute(data.paths[i]); for (const item of list.querySelectorAll<HTMLElement>('[data-edge]')) item.classList.toggle('on-route', ids.has(Number(item.dataset.edge))); }; list.append(route);
     }
     for (const edge of this.edges) {
       const a = this.symbols.get(edge.from)!, b = this.symbols.get(edge.to)!; const button = text('button', '', 'journey-edge'); button.dataset.edge = String(edge.id);
       const status = this.manifest.mode !== 'diff' ? '' : edge.versions === 1 ? 'REMOVED' : edge.versions === 2 ? 'ADDED' : 'UNCHANGED';
-      button.append(text('small', `${edge.kind.toUpperCase()} / ${edge.confidence.toUpperCase()} ${status}${edge.count ? ` / ${edge.count} grouped` : ''}`), text('strong', `${a.name} → ${b.name}`), text('span', edge.condition ?? edge.reason)); button.onclick = () => this.selectEdge(edge.id); list.append(button);
+      button.append(text('small', `${edge.kind.toUpperCase()} / ${edge.confidence.toUpperCase()} ${status}${edge.count && edge.count > 1 ? ` / ${edge.count} grouped` : ''}`), text('strong', `${a.name} → ${b.name}`), text('span', edge.condition ?? edge.reason)); button.onclick = () => this.city?.inspectConnection(edge.id); list.append(button);
     }
   }
-  private selectEdge(id: number) {
-    const e = this.edges.find(edge => edge.id === id); if (!e) return;
-    this.city?.highlightRelation(id); const side: Side = this.version() === 'before' || this.version() === 'compare' && e.versions === 1 ? 'before' : 'after';
-    const file = this.manifest.files[e.file], line = side === 'before' ? e.beforeLine ?? e.line : e.line;
-    const evidence = $('journey-evidence'); evidence.hidden = false; evidence.replaceChildren(text('strong', `${e.kind} / ${e.confidence}`), text('p', e.reason), text('p', `${file?.path ?? 'External'}:${line} (${side})`));
-    if (e.condition) evidence.append(text('p', `Condition: ${e.condition}`));
-    const open = text('button', 'Open source evidence', 'journey-path'); open.onclick = () => { this.open(e.file, line, side); if (matchMedia('(max-width: 760px)').matches) this.toggle(false); }; evidence.append(open);
-    const target = this.symbols.get(e.to); if (target && target.file >= 0) { const next = text('button', 'Continue from destination', 'journey-path'); next.onclick = () => { this.from = target; this.labels(); this.mode = 'out'; this.run(); }; evidence.append(next); }
+  private connection(edge: DisplayEdge, side: Connection['side'], route?: number): Connection {
+    const source = this.symbols.get(edge.from)!, target = this.symbols.get(edge.to)!;
+    const file = this.manifest.files[edge.file]; const evidence: NonNullable<Connection['evidence']> = [];
+    if (side !== 'after' && edge.versions & 1 && file?.before?.block) evidence.push({ file: edge.file, side: 'before', line: edge.beforeLine ?? edge.line });
+    if (side !== 'before' && edge.versions & 2 && file?.after?.block) evidence.push({ file: edge.file, side: 'after', line: edge.line });
+    const continueFromTarget = this.manifest.files[target.file] ? () => {
+      $<HTMLSelectElement>('journey-version').value = side === 'compare' && edge.versions === 1 ? 'before' : side;
+      this.from = target; this.toggle(true); this.labels(); this.mode = 'out'; this.run();
+    } : undefined;
+    return { ...edge, source: source.name, target: target.name, fromFile: source.file, toFile: target.file, side, evidence, route, continueFromTarget };
   }
 }
